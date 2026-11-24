@@ -12,12 +12,10 @@ hardware wave, the reference) and to 32 (the halves) through VKH_SUBGROUP_SIZE o
   tier C      the words the header names differ between the two sizes, which shows the translator's detector is
               right to flag the shader (the other words stay equal)
 
-A device that can require only one size (NVIDIA: 32 only) cannot run the comparison. There the default-size image is
-checked against the derived words (tiers A, B), the tier C check is skipped, and two environment variables let a
-second device stand in for the missing size: W64G_SAVE_REF=<dir> stores the 64-lane run after its available checks
-pass, including on devices with 64 as their only size (AMD GCN). W64G_REF=<dir> checks that the other device's
-tier A/B results agree with that reference. Tier C needs a verified 32-wide draw to compare with the saved 64-wide
-run. A device whose only size is 32 can use its default draw.
+A device that can require only one size still checks the words with a known value in every tier.
+W64G_SAVE_REF=<dir> stores the 64-lane draw after its checks pass. W64G_REF=<dir> lets another device compare
+its tier A/B results with the saved reference. Tier C needs a verified 32-wide draw for that comparison. A device
+whose only size is 32 can use its default draw. If the other width is unavailable, tier C skips the comparison.
 
 A device whose subgroups can be narrower than 32 (Intel: 8..32) and that could not be held to 32 or 64 skips the tier
 A and B pixel fixtures: its fragment stage may run fewer live lanes than 32 (Intel UHD 770 reports 32 but runs 16 live
@@ -354,6 +352,8 @@ def expected_problem(name, words, heap):
             wrong.append((i, w, want))
     if wrong:
         i, w, want = wrong[0]
+        if tier == "C":
+            return f"a partition-invariant word differs in {len(wrong)} of {len(words)} records, first at {i}: got {w}, want {want}"
         return f"{len(wrong)} of {len(words)} pixels differ from the derived words, first ({_x(i)},{_y(i)}): got {w}, want {want}"
     if name.endswith("_b_ballot_atomic"):
         want = sorted(i + 1 for i in range(len(words)) if _x(i) % 4 == 1)
@@ -417,13 +417,13 @@ def check(tools, spirv, name):
             if live is not None and live < need:
                 return Skip(f"SKIP (the fragment stage has {live} live lanes per subgroup here, measured with "
                             f"ps_live_width; this fixture needs {need})")
+        for size, (words, heap) in runs.items():
+            if tier != "C" and size is None and len(runs) > 1:
+                continue                          # the default draw repeats one of the forced sizes for tiers A and B
+            p = expected_problem(name, words, heap)
+            if p:
+                return f"{size or 'default size'}: {p}"
         if tier in ("A", "B"):
-            for size, (words, heap) in runs.items():
-                if size is None and len(runs) > 1:
-                    continue                      # the default draw repeats one of the forced sizes
-                p = expected_problem(name, words, heap)
-                if p:
-                    return f"{size or 'default size'}: {p}"
             if 64 in runs and 32 in runs and comparable(name, *runs[64]) != comparable(name, *runs[32]):
                 return "the images at required subgroup size 64 and 32 differ"
         elif 64 in runs and 32 in runs:
