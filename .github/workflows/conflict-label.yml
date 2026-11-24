@@ -1,16 +1,15 @@
 name: Needs rebase label
 
 # Labels the open pull requests that conflict with main `needs rebase` and unlabels them once they merge again
-# (tools/pr_conflict_label.py). A push to main can make any open pull request conflict, so it checks all of them; a
-# push to a pull request checks that one; the hourly run catches merges GitHub had not computed yet.
+# (tools/pr_conflict_label.py). A push to main can make any open pull request conflict, so it checks all of them;
+# the hourly run catches a rebase and any merge GitHub had not computed yet.
 #
-# pull_request_target gives a fork's pull request a token that can write labels. That is safe only because this job
-# checks out main, never the pull request, and the tool reads nothing but the GitHub API: no pull request code runs.
+# There is no pull request trigger. One run per push to every pull request queued hundreds of runs here, ahead of
+# the builds and tests that share the repository's runners; checking all of them per push to main and per hour keeps
+# at most one run waiting. The job checks out main and reads only the GitHub API: no pull request code runs.
 on:
   push:
     branches: [main]
-  pull_request_target:
-    types: [opened, reopened, synchronize]
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -18,7 +17,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: conflict-label-${{ github.event.pull_request.number || 'all' }}
+  # One run at a time and one waiting; a newer push replaces the waiting one, since each run checks every pull request.
+  group: conflict-label
   cancel-in-progress: false
 
 jobs:
@@ -37,5 +37,4 @@ jobs:
       - name: Label conflicting pull requests
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: python3 -I tools/pr_conflict_label.py --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"}
+        run: python3 -I tools/pr_conflict_label.py --repo "$GITHUB_REPOSITORY"

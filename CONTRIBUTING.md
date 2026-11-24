@@ -81,5 +81,4 @@ number and links nowhere now, including the two this page used to send you to: #
 - Fill in the [template](.github/pull_request_template.md): the claim, `Depends on:`, `Fixes: #N` for an issue it
   closes, what you tested, `GPUs tested:` (vendor, model, driver and OS) and whether it was AI-assisted.
 - A pull request that conflicts with `main` is labeled `needs rebase` (`tools/pr_conflict_label.py`, run on every
-  push to `main` and to the pull request, and hourly). Rebase it on `main` yourself; the label goes once it merges
-  cleanly. Reviews start with the pull requests that do.
+  push to `main` and hourly). Rebase it on `main` yourself; the label goes within the hour once it merges cleanly. Reviews start with the pull requests that do.

@@ -3,14 +3,13 @@
     python -I tools/pr_conflict_label.py --repo OWNER/NAME [--pr N] [--dry-run]
 
 `.github/workflows/conflict-label.yml` runs this on every push to `main` (a merge can make other pull requests
-conflict), on a pull request being opened, reopened or pushed to (a rebase can clear a conflict), and hourly in case
-GitHub had not finished computing a merge. Every pull request gets reviewed by hand; the label lets a reviewer skip
+conflict) and hourly (a rebase can clear a conflict, and GitHub may not have finished computing a merge). It has no
+per-pull-request trigger: one run per push to every pull request flooded the repository's runners. Every pull request gets reviewed by hand; the label lets a reviewer skip
 the ones that cannot be merged as they stand and tells their authors to rebase.
 
 GitHub computes `mergeable` in the background and answers `null` until it has, so a pull request whose answer is
 still unknown is asked again a few times and otherwise left as it is for the next run. Only the GitHub REST API is
-read and written: no pull request code is checked out or run, which is what makes the `pull_request_target` trigger
-safe here. The token comes from `GITHUB_TOKEN` (or `GH_TOKEN`); `--dry-run` prints the changes and writes nothing.
+read and written: no pull request code is checked out or run. The token comes from `GITHUB_TOKEN` (or `GH_TOKEN`); `--dry-run` prints the changes and writes nothing.
 Standard library only; no game files.
 """
 import argparse

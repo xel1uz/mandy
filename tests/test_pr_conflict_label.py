@@ -140,9 +140,14 @@ class WorkflowTest(unittest.TestCase):
     def test_runs_this_tool(self):
         self.assertIn("python3 -I tools/pr_conflict_label.py", self.text)
 
+    def test_no_run_per_pull_request(self):
+        # A run per push to every pull request queued hundreds of runs ahead of the repository's builds and tests.
+        # Every run checks all pull requests, so one concurrency group keeps at most one waiting.
+        self.assertNotRegex(self.text, r"(?m)^\s+pull_request(_target)?\s*:")
+        self.assertRegex(self.text, r"(?m)^\s+group:\s*conflict-label\s*$")
+        self.assertNotIn("--pr", self.text)
+
     def test_never_checks_out_pull_request_code(self):
-        # pull_request_target runs with a write token; checking out the head would run untrusted code with it.
-        self.assertIn("pull_request_target", self.text)
         self.assertNotRegex(self.text, r"github\.event\.pull_request\.head|github\.head_ref|refs/pull/")
         self.assertRegex(self.text, r"ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}")
         self.assertIn("persist-credentials: false", self.text)
