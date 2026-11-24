@@ -15,8 +15,9 @@ hardware wave, the reference) and to 32 (the halves) through VKH_SUBGROUP_SIZE o
 A device that can require only one size (NVIDIA: 32 only) cannot run the comparison. There the default-size image is
 checked against the derived words (tiers A, B), the tier C check is skipped, and two environment variables let a
 second device stand in for the missing size: W64G_SAVE_REF=<dir> stores the 64-lane run after its available checks
-pass, including on devices with 64 as their only size (AMD GCN). W64G_REF=<dir> compares every run of the other
-device with those files (equal for A and B, different for C).
+pass, including on devices with 64 as their only size (AMD GCN). W64G_REF=<dir> checks that the other device's
+tier A/B results agree with that reference. Tier C needs a verified 32-wide draw to compare with the saved 64-wide
+run. A device whose only size is 32 can use its default draw.
 
 A device whose subgroups can be narrower than 32 (Intel: 8..32) and that could not be held to 32 or 64 skips the tier
 A and B pixel fixtures: its fragment stage may run fewer live lanes than 32 (Intel UHD 770 reports 32 but runs 16 live
@@ -266,11 +267,18 @@ def _draw_heap(tools, spirv, name, size, tmp):
         return None, "unsupported: " + out.strip().splitlines()[-1]
     if r.returncode or not heap.is_file():
         return None, f"exit {r.returncode}: {' | '.join(out.strip().splitlines()[-3:])}"
+    _record_device_range(out)
     words = list(struct.unpack("<%dI" % (65536 // 4), heap.read_bytes()))
     return [tuple(words[VS_RECORDS + 4 * v:VS_RECORDS + 4 * v + 4]) for v in range(records)], words
 
 
-_device_min = [None]   # the smallest subgroup size vk_harness reported for the device
+_device_range = None   # subgroup size limits reported by the harness for this draw
+
+
+def _record_device_range(output):
+    global _device_range
+    match = re.search(r"subgroup (\d+)\.\.(\d+)", output)
+    _device_range = (int(match[1]), int(match[2])) if match else None
 
 
 # Pixel fixtures that read lanes beyond the first 16 (a half-wave exchange, lane L ^ 16), and how many live lanes per
@@ -325,9 +333,7 @@ def draw(tools, spirv, name, size, tmp):
     data = raw.read_bytes()
     if len(data) != W * H * 16:
         return None, f"{len(data)} bytes of pixels, expected {W * H * 16}", None
-    m = re.search(r"subgroup (\d+)\.\.(\d+)", out)
-    if m:
-        _device_min[0] = int(m.group(1))
+    _record_device_range(out)
     applied = None
     if size:
         applied = f"fragment subgroup size: {size}\n" in out.replace("\r", "")
@@ -398,8 +404,8 @@ def check(tools, spirv, name):
         # 8..32) and that could not be held to 32 or 64 may run fewer live lanes than it reports (UHD 770: 16 live
         # behind a reported 32): reads across them return garbage.
         if tier in ("A", "B") and name.startswith("ps_") and 64 not in runs and 32 not in runs \
-                and _device_min[0] is not None and _device_min[0] < 32:
-            return Skip(f"SKIP (the fragment stage may run fewer live lanes than 32 here ({_device_min[0]}..) "
+                and _device_range is not None and _device_range[0] < 32:
+            return Skip(f"SKIP (the fragment stage may run fewer live lanes than 32 here ({_device_range[0]}..) "
                         "and 32 or 64 could not be required: tiers A and B assume 32 or 64 live lanes)")
         # A fixture that reads a lane beyond the quad or the first 16 (NEEDS_LIVE_LANES) is judged only where the
         # measured live width is enough: the stage can report a subgroup size it does not fill (Intel: 32 reported,
@@ -432,11 +438,12 @@ def check(tools, spirv, name):
             for size, (words, heap) in runs.items():
                 if size == 64:
                     continue
-                if tier == "C" and comparable(name, ref_words, None) != comparable(name, words, None):
-                    return "a partition-invariant word differs from the 64-lane reference"
                 if tier == "C":
+                    # A default draw can be 64-wide itself. Use it only if it is our sole, known 32-wide run.
+                    if size is None and (32 in runs or _device_range != (32, 32)):
+                        continue
                     if comparable(name, ref_words, None) != comparable(name, words, None):
-                        return "a word that must not depend on the partition differs from the 64-lane reference"
+                        return "a partition-invariant word differs from the 64-lane reference"
                     if not partition_dependent(name, ref_words, words):
                         return "tier C but the run equals the 64-lane reference: the detector is wrong"
                     compared = True
@@ -447,7 +454,7 @@ def check(tools, spirv, name):
             Path(save).mkdir(parents=True, exist_ok=True)
             (Path(save) / (name + ".ref64.raw")).write_bytes(b"".join(struct.pack("<4I", *w) for w in runs[64][0]))
         if tier == "C" and not compared:
-            return Skip("SKIP (tier C needs a device that can require both 64 and 32, or W64G_REF)")
+            return Skip("SKIP (tier C needs verified 32- and 64-wide draws; W64G_REF can supply the 64-wide draw)")
     return ""
 
 
