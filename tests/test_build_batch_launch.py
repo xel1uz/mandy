@@ -77,8 +77,11 @@ class BatchLaunchTest(unittest.TestCase):
     def test_the_check_catches_a_launch_line_that_drops_the_quotes(self):
         # The form both scripts used before: cmd.exe /c "path" loses the quotes around a path holding & or ^.
         broken = self.check('"/c", "`"$bat`""')
-        self.assertIn("a & b/0->1", broken)
-        self.assertIn("x^y/7->1", broken)
+        # The batch never runs in those folders, but the exit code cmd.exe then returns is 0 on some runs and 1 on
+        # others, so compare the folder and the code the batch should have returned, not what came back.
+        failed = [b.rsplit("->", 1)[0] for b in broken]
+        self.assertIn("a & b/0", failed, broken)
+        self.assertIn("x^y/7", failed, broken)
         self.assertFalse([b for b in broken if b.startswith(("plain/", "sp (x)/"))], broken)
 
 
